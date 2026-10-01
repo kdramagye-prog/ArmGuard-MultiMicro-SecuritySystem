@@ -1,54 +1,46 @@
-# ArmGuard — Système de sécurité multi-microcontrôleurs
+# ArmGuard-Sénégal
 
-Projet de concours basé sur un ESP32-D0WD-V3, un Raspberry Pi Pico et un Arduino Nano. Le système combine surveillance Wi-Fi défensive, capteurs physiques et journalisation locale.
+Prototype de sécurité locale autour d'un ESP32-D0WD-V3, d'un Raspberry Pi Pico et d'un Arduino Nano classique (ATmega328P).
 
-## Architecture
+## Ce qui fonctionne dans cette version
 
-- **ESP32-D0WD-V3** : point central, scan Wi-Fi passif, interface Web locale et émission des événements.
-- **Raspberry Pi Pico** : PIR, contacts de portes/fenêtres, bouton d'urgence, buzzer/sirène et LED.
-- **Arduino Nano** : journalisation de secours et affichage optionnel.
-- **Liaison** : messages JSON terminés par `\n` sur UART, spécifiés dans [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+- Le Pico lit un PIR, un contact de porte et un bouton; il commande une sortie relais et une LED d'alerte.
+- Un appui bref sur le bouton déclenche l'alarme. Maintenir le bouton 1,5 s arme ou désarme le système. Une alarme est mémorisée jusqu'au désarmement.
+- L'ESP32 reçoit les événements du Pico, réalise un scan des points d'accès Wi-Fi visibles toutes les 30 s et sert un tableau de bord local en lecture seule.
+- Le Nano reçoit une copie des événements, les affiche sur un OLED SSD1306 et les ajoute à `/events.csv` sur une carte microSD, horodatés si le DS3231 est présent.
 
-Les sorties dangereuses sont initialisées à l'état inactif et ne sont jamais activées automatiquement au démarrage.
+Le scan Wi-Fi est passif au sens où il ne se connecte pas aux réseaux découverts et n'envoie pas de trames d'attaque. Il dénombre les points d'accès qui annoncent leur présence. Il ne voit pas les appareils clients, ne prouve pas une intrusion et ne détecte pas de façon fiable le brouillage ni les trames de désauthentification. La détection d'intrusion réseau nécessiterait des données du routeur ou un capteur radio dédié.
 
-## Structure prévue
+Les notifications Telegram, SMS/GSM et e-mail, le servo de verrouillage, l'authentification du tableau de bord et les schémas Fritzing ne sont pas implémentés dans ce prototype. Ne présente pas ces fonctions comme disponibles lors d'une démonstration. Le tableau de bord doit rester sur un réseau local de confiance.
 
-```text
-esp32_wifi_security/     # Firmware ESP32
-pico_sensors_control/    # Firmware Pico
-nano_logging_oled/       # Firmware Nano
-docs/                    # câblage et protocole
-tests/                   # tests hors matériel
+## Construction
+
+Installer PlatformIO Core, puis depuis ce dossier:
+
+```sh
+pio run -e esp32
+pio run -e pico
+pio run -e nano
 ```
 
-## Sécurité et périmètre
+Les dépendances OLED et RTC du Nano sont déclarées dans `platformio.ini`. La cible Pico utilise la plateforme Arduino-Pico de `maxgerhardt`. Pour le moniteur série, sélectionner l'environnement voulu et utiliser `pio device monitor -b 115200`.
 
-Ce projet est défensif : il surveille uniquement les réseaux et équipements pour lesquels tu as une autorisation. Il ne contient pas de fonctions de désauthentification, de brouillage, de récupération de mots de passe ou de portail de collecte d'identifiants.
+Avant de flasher l'ESP32, renseigner `ARMGuard_WIFI_SSID` et `ARMGuard_WIFI_PASSWORD` dans `include/config.h` pour rendre le tableau de bord accessible sur le Wi-Fi. Ne publier ni ces identifiants ni une capture d'écran qui les révèle. Sans SSID configuré, la partie capteurs et journalisation fonctionne encore, mais aucun tableau de bord réseau n'est accessible.
 
-Avant de brancher les cartes :
+## Mise en service
 
-1. Relie toutes les masses (`GND`) ensemble.
-2. Vérifie les niveaux logiques : le Pico et l'ESP32 sont en 3,3 V ; protège l'entrée du Nano si nécessaire.
-3. Teste d'abord avec une LED et un buzzer basse tension, jamais avec une sirène ou une serrure réelle.
-4. Ajoute un fusible et un transistor/MOSFET pour les charges externes.
+1. Vérifier le câblage décrit dans [docs/wiring.md](docs/wiring.md), en particulier la masse commune et l'interface du relais.
+2. Flasher et tester le Pico seul: vérifier les états du PIR/contact et le clic bref/long du bouton avant de connecter la sirène.
+3. Connecter l'ESP32 et vérifier la réception des événements sur le moniteur série. Configurer ensuite les identifiants Wi-Fi et consulter l'adresse IP annoncée par le routeur.
+4. Ajouter le Nano, l'OLED, le DS3231 et la carte SD. Vérifier l'affichage `SD: OK` et `RTC: OK`, puis contrôler le fichier `/events.csv`.
+5. Tester avec une LED ou une charge basse tension avant toute sirène. Une alarme réelle requiert une alimentation dimensionnée et un étage de puissance adapté.
 
-## Compilation
+## Protocole inter-cartes
 
-Chaque dossier firmware sera un environnement PlatformIO indépendant. Les commandes générales sont :
+L'ESP32 et le Pico échangent des lignes ASCII terminées par `\n`, à 9600 bauds, format `TYPE|nom|0-ou-1`. Exemples: `EV|pir|1`, `EV|door|1`, `ST|armed|1`, `ST|alarm|1`. La sortie TX de l'ESP32 est également reliée à l'entrée SoftwareSerial du Nano pour journaliser les mêmes lignes.
 
-```bash
-pio run
-pio device list
-pio run -t upload --upload-port COM4
-pio device monitor -b 115200
-```
+Voir [docs/PROTOCOL.md](docs/PROTOCOL.md) pour les directions série, les messages et le comportement au démarrage.
 
-Le port `COM4` peut changer selon le câble et le système. La carte ESP32-D0WD-V3 doit généralement être sélectionnée comme `esp32dev` ou `esp32doit-devkit-v1` selon le module utilisé.
+## Limites matérielles
 
-## État
-
-Le dépôt contient actuellement le protocole et la documentation initiale. Les firmwares seront ajoutés par étapes afin de pouvoir compiler et tester chaque carte séparément.
-
-## Licence
-
-MIT — voir `LICENSE`.
+Cette version vise une carte Nano ATmega328P 5 V avec 2 Ko de SRAM. Les capteurs et le relais ne doivent pas être alimentés depuis une broche GPIO. Ne raccorde jamais une sortie 5 V à une entrée ESP32/Pico 3,3 V. Voir les précautions détaillées dans le guide de câblage.
